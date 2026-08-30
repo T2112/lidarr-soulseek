@@ -85,7 +85,6 @@ def score_folder(
     if not audio:
         candidate.reason = "no audio"
         return candidate
-
     exts = {extension(f.filename) for f in audio}
     ext_rank = 0
     for i, pref in enumerate(preferred_extensions):
@@ -95,19 +94,16 @@ def score_folder(
     if ext_rank == 0:
         candidate.reason = f"unwanted types {sorted(exts)}"
         return candidate
-
     if "mp3" in exts and "flac" not in exts:
         rates = [bitrate_of(f) for f in audio if extension(f.filename) == "mp3"]
         rates = [r for r in rates if r > 0]
         if rates and max(rates) < min_mp3_bitrate:
             candidate.reason = f"mp3 bitrate {max(rates)} < {min_mp3_bitrate}"
             return candidate
-
     expected = len(track_titles) or 0
     if expected and abs(len(audio) - expected) > track_count_tolerance:
         candidate.reason = f"track count {len(audio)} vs {expected}"
         return candidate
-
     names = [Path(basename(f.filename)).stem for f in audio]
     if track_titles:
         hits = 0
@@ -120,25 +116,64 @@ def score_folder(
             return candidate
     else:
         title_score = 0.5
-
     folder_blob = normalize(f"{candidate.remote_dir} {names[0] if names else ''}")
     album_hit = similarity(album, folder_blob)
     artist_hit = similarity(artist, folder_blob)
-    if album_hit < 0.25 and artist_hit < 0.2:
-        if title_score < 0.7:
-            candidate.reason = "folder does not look like the album"
-            return candidate
-
+    if album_hit < 0.25 and artist_hit < 0.2 and title_score < 0.7:
+        candidate.reason = "folder does not look like the album"
+        return candidate
     candidate.files = audio
-    candidate.score = (
-        ext_rank * 10
-        + title_score * 8
-        + album_hit * 3
-        + artist_hit * 2
-        + min(len(audio), expected or len(audio)) * 0.1
-    )
+    candidate.score = ext_rank * 10 + title_score * 8 + album_hit * 3 + artist_hit * 2 + min(len(audio), expected or len(audio)) * 0.1
     candidate.reason = "ok"
     return candidate
+
+
+def build_track_queries(artist: str, album: str, track: str) -> list[str]:
+    artist_q = normalize(artist)
+    album_q = normalize(album)
+    track_q = normalize(track)
+    queries = []
+    if artist_q and track_q and album_q:
+        queries.append(f"{artist_q} {album_q} {track_q}")
+    if artist_q and track_q:
+        queries.append(f"{artist_q} {track_q}")
+    seen: set[str] = set()
+    out = []
+    for q in queries:
+        key = normalize(q)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(key)
+    return out
+
+
+def score_track_item(
+    item, username: str, artist: str, album: str, track: str,
+    preferred_extensions: list[str], min_filename_ratio: float, min_mp3_bitrate: int,
+) -> tuple[float, str]:
+    filename = getattr(item, "filename", "") or ""
+    ext = extension(filename)
+    if ext not in AUDIO_EXT:
+        return 0.0, "not audio"
+    if preferred_extensions and ext not in preferred_extensions:
+        return 0.0, f"unwanted type {ext}"
+    name = Path(basename(filename)).stem
+    title_hit = similarity(track, name)
+    if title_hit < min_filename_ratio:
+        return 0.0, f"title match {title_hit:.2f}"
+    path_blob = normalize(filename)
+    artist_hit = similarity(artist, path_blob)
+    album_hit = similarity(album, path_blob)
+    if ext == "mp3":
+        rate = bitrate_of(item)
+        if rate and rate < min_mp3_bitrate:
+            return 0.0, f"mp3 bitrate {rate} < {min_mp3_bitrate}"
+    ext_rank = 0
+    for i, pref in enumerate(preferred_extensions):
+        if pref == ext:
+            ext_rank = len(preferred_extensions) - i
+            break
+    return ext_rank * 10 + title_hit * 12 + album_hit * 3 + artist_hit * 2, "ok"
 
 
 def group_results(results, ignored_users: set[str]) -> list[FolderCandidate]:
