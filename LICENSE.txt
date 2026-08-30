@@ -1,0 +1,5 @@
+This worker is provided as-is for personal use.
+
+It uses aioslsk (GPL-3.0-or-later). If you distribute this package
+together with aioslsk, the combined work is subject to the GPL-3.0.
+See https://github.com/JurgenR/aioslsk
