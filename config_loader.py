@@ -22,6 +22,8 @@ class Config:
     log_file: Path
     search_wait_seconds: float
     max_albums_per_cycle: int
+    max_tracks_per_cycle: int
+    fill_missing_tracks: bool
     cycle_seconds: int
     retry_hours: int
     min_filename_ratio: float
@@ -92,6 +94,8 @@ def load_config(path: Path) -> Config:
         log_file=log_file,
         search_wait_seconds=float(search.get("search_wait_seconds", 12)),
         max_albums_per_cycle=int(search.get("max_albums_per_cycle", 3)),
+        max_tracks_per_cycle=int(search.get("max_tracks_per_cycle", 5)),
+        fill_missing_tracks=bool(search.get("fill_missing_tracks", True)),
         cycle_seconds=int(search.get("cycle_seconds", 300)),
         retry_hours=int(search.get("retry_hours", 12)),
         min_filename_ratio=float(search.get("min_filename_ratio", 0.5)),
