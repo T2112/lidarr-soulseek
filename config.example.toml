@@ -31,6 +31,9 @@ log_file = "lidarr-soulseek.log"
 [search]
 search_wait_seconds = 12
 max_albums_per_cycle = 3
+# After album grabs, search Soulseek for individual missing tracks on partial albums.
+fill_missing_tracks = true
+max_tracks_per_cycle = 5
 cycle_seconds = 300
 retry_hours = 12
 min_filename_ratio = 0.5

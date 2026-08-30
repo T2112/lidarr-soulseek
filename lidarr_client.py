@@ -57,6 +57,37 @@ class LidarrClient:
     def tracks_for_album(self, album_id: int) -> list[dict[str, Any]]:
         return self._get("/track", params={"albumId": album_id}) or []
 
+    def albums(self) -> list[dict[str, Any]]:
+        return self._get("/album") or []
+
+    def missing_tracks_on_partial_albums(self) -> list[dict[str, Any]]:
+        holes: list[dict[str, Any]] = []
+        for album in self.albums():
+            if not album.get("monitored", True):
+                continue
+            stats = album.get("statistics") or {}
+            files = int(stats.get("trackFileCount") or 0)
+            total = int(stats.get("totalTrackCount") or stats.get("trackCount") or 0)
+            if files <= 0 or total <= 0 or files >= total:
+                continue
+            artist = album.get("artist") or {}
+            for track in self.tracks_for_album(int(album["id"])):
+                if not track.get("monitored", True):
+                    continue
+                if track.get("hasFile"):
+                    continue
+                holes.append(
+                    {
+                        "track": track,
+                        "album": album,
+                        "artist_name": artist.get("artistName")
+                        or album.get("artistName")
+                        or "Unknown Artist",
+                        "album_title": album.get("title") or "Unknown Album",
+                    }
+                )
+        return holes
+
     def scan_downloaded(self, path: str) -> Any:
         return self._post(
             "/command",
