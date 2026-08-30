@@ -23,7 +23,7 @@ from aioslsk.shares.model import DirectoryShareMode
 
 from config_loader import Config
 from lidarr_client import LidarrClient
-from match import AUDIO_EXT, build_queries, group_results, score_folder
+from match import AUDIO_EXT, build_queries, build_track_queries, group_results, score_folder, score_track_item
 from state import JobStore
 
 log = logging.getLogger("lidarr_slsk")
@@ -234,6 +234,110 @@ class Worker:
             processed += 1
             if not ok:
                 log.info("No usable result yet for %s - %s", artist, title)
+        if self.cfg.fill_missing_tracks:
+            await self.cycle_tracks()
+
+    async def cycle_tracks(self) -> None:
+        try:
+            holes = self.lidarr.missing_tracks_on_partial_albums()
+        except Exception:
+            log.exception("Could not list missing tracks")
+            return
+        log.info("Lidarr missing tracks on partial albums: %s", len(holes))
+        processed = 0
+        for hole in holes:
+            if processed >= self.cfg.max_tracks_per_cycle:
+                break
+            track = hole["track"]
+            track_id = int(track["id"])
+            album = hole["album"]
+            album_id = int(album["id"])
+            artist = hole["artist_name"]
+            album_title = hole["album_title"]
+            title = track.get("title") or "Unknown Track"
+            if self.store.should_skip_track(track_id, self.cfg.retry_hours):
+                continue
+            self.store.upsert_track(track_id, album_id, artist, title, "searching")
+            ok = await self.process_track(hole)
+            processed += 1
+            if not ok:
+                log.info("No usable track yet for %s - %s - %s", artist, album_title, title)
+
+    async def process_track(self, hole: dict) -> bool:
+        await self.ensure_soulseek()
+        assert self.client is not None
+        track = hole["track"]
+        album = hole["album"]
+        track_id = int(track["id"])
+        album_id = int(album["id"])
+        artist = hole["artist_name"]
+        album_title = hole["album_title"]
+        title = track.get("title") or "Unknown Track"
+        year = album_year(album)
+        queries = build_track_queries(artist, album_title, title)
+        log.info("Track search: %s", " | ".join(queries))
+        best_item = None
+        best_user = ""
+        best_score = 0.0
+        for query in queries:
+            request = await self.client.searches.search(query)
+            await asyncio.sleep(self.cfg.search_wait_seconds)
+            for result in request.results:
+                username = getattr(result, "username", "") or ""
+                if username.lower() in self.cfg.ignored_users:
+                    continue
+                for item in list(getattr(result, "shared_items", None) or []):
+                    score, reason = score_track_item(
+                        item, username, artist, album_title, title,
+                        self.cfg.preferred_extensions, self.cfg.min_filename_ratio, self.cfg.min_mp3_bitrate,
+                    )
+                    if reason != "ok":
+                        continue
+                    if score > best_score:
+                        best_score = score
+                        best_item = item
+                        best_user = username
+            try:
+                self.client.searches.remove_request(request)
+            except Exception:
+                pass
+            if best_item and best_score >= 18:
+                break
+        if best_item is None:
+            self.store.upsert_track(track_id, album_id, artist, title, "no_match", "no file passed filters")
+            return False
+        log.info("Picked track %s from %s :: %s (score %.1f)", title, best_user, getattr(best_item, "filename", ""), best_score)
+        self.store.upsert_track(track_id, album_id, artist, title, "downloading", best_user)
+        transfer = await self.client.transfers.download(best_user, best_item.filename)
+        deadline = asyncio.get_event_loop().time() + min(self.cfg.download_timeout_minutes, 30) * 60
+        while asyncio.get_event_loop().time() < deadline:
+            name = state_name(transfer)
+            if name in {"COMPLETE", "FAILED", "ABORTED"}:
+                break
+            log.info("Track download %s: %s", title, name or "waiting")
+            await asyncio.sleep(10)
+        if state_name(transfer) != "COMPLETE":
+            self.store.upsert_track(track_id, album_id, artist, title, "failed", state_name(transfer) or "timeout")
+            return False
+        folder, sources = stage_album_folder(self.cfg, artist, album_title, year, [transfer])
+        audio_count = sum(1 for p in folder.iterdir() if p.suffix.lower() in AUDIO_EXT)
+        if audio_count == 0:
+            self.store.upsert_track(track_id, album_id, artist, title, "failed", "no file staged")
+            return False
+        scan_path = str(Path(self.cfg.lidarr_scan_path) / folder.name)
+        try:
+            self.lidarr.scan_downloaded(scan_path)
+        except Exception as exc:
+            try:
+                self.lidarr.scan_downloaded(str(folder))
+            except Exception:
+                self.store.upsert_track(track_id, album_id, artist, title, "failed", f"scan failed: {exc}")
+                raise
+        if self.cfg.delete_sources_after_import:
+            cleanup_sources(sources, self.cfg.download_dir)
+        self.store.upsert_track(track_id, album_id, artist, title, "imported", str(folder))
+        log.info("Asked Lidarr to import missing track %s into %s", title, folder)
+        return True
 
     async def process_album(self, album: dict) -> bool:
         await self.ensure_soulseek()
@@ -246,7 +350,6 @@ class Worker:
         titles = track_titles(tracks)
         queries = build_queries(artist, title, year)
         log.info("Searching: %s", " | ".join(queries))
-
         best = None
         for query in queries:
             request = await self.client.searches.search(query)
@@ -254,14 +357,9 @@ class Worker:
             folders = group_results(request.results, self.cfg.ignored_users)
             for folder in folders:
                 scored = score_folder(
-                    folder,
-                    artist,
-                    title,
-                    titles,
-                    self.cfg.preferred_extensions,
-                    self.cfg.min_filename_ratio,
-                    self.cfg.track_count_tolerance,
-                    self.cfg.min_mp3_bitrate,
+                    folder, artist, title, titles,
+                    self.cfg.preferred_extensions, self.cfg.min_filename_ratio,
+                    self.cfg.track_count_tolerance, self.cfg.min_mp3_bitrate,
                 )
                 if scored.reason != "ok":
                     continue
@@ -273,18 +371,15 @@ class Worker:
                 pass
             if best and best.score >= 20:
                 break
-
         if best is None:
             self.store.upsert(album_id, artist, title, "no_match", "no folder passed filters")
             return False
-
         log.info("Picked %s :: %s (%s files, score %.1f)", best.username, best.remote_dir, len(best.files), best.score)
         self.store.upsert(album_id, artist, title, "downloading", best.username)
         transfers = []
         for item in best.files:
             transfer = await self.client.transfers.download(best.username, item.filename)
             transfers.append(transfer)
-
         deadline = asyncio.get_event_loop().time() + self.cfg.download_timeout_minutes * 60
         while asyncio.get_event_loop().time() < deadline:
             names = [state_name(t) for t in transfers]
@@ -293,7 +388,6 @@ class Worker:
             complete = sum(1 for n in names if n == "COMPLETE")
             log.info("Download progress %s/%s complete", complete, len(transfers))
             await asyncio.sleep(15)
-
         complete_transfers = [t for t in transfers if state_name(t) == "COMPLETE"]
         needed = max(1, len(best.files) - self.cfg.track_count_tolerance)
         if len(complete_transfers) < needed:
@@ -301,13 +395,11 @@ class Worker:
             self.store.upsert(album_id, artist, title, "failed", detail)
             log.warning("Incomplete download for %s - %s (%s)", artist, title, detail)
             return False
-
         folder, sources = stage_album_folder(self.cfg, artist, title, year, complete_transfers)
         audio_count = sum(1 for p in folder.iterdir() if p.suffix.lower() in AUDIO_EXT)
         if audio_count == 0:
             self.store.upsert(album_id, artist, title, "failed", "no files staged")
             return False
-
         scan_path = str(Path(self.cfg.lidarr_scan_path) / folder.name)
         try:
             self.lidarr.scan_downloaded(scan_path)
