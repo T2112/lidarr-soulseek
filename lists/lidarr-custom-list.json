@@ -1,1 +1,17 @@
-CONTENT_PLACEHOLDER_REPLACE
+[
+  {
+    "MusicBrainzId": "8e68819d-71be-4e7d-b41d-f1df81b01d3f"
+  },
+  {
+    "MusicBrainzId": "9689aa5a-4471-4fb4-9721-07cecda0fa9f"
+  },
+  {
+    "MusicBrainzId": "25b7b584-d952-4662-a8b9-dd8cdfbfeb64"
+  },
+  {
+    "MusicBrainzId": "d87e52c5-bb8d-4da8-b941-9f4928627dc8"
+  },
+  {
+    "MusicBrainzId": "66c662b6-6e2f-4930-8610-912e24c63ed1"
+  }
+]
