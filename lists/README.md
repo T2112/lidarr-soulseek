@@ -7,8 +7,12 @@ https://raw.githubusercontent.com/T2112/lidarr-soulseek/main/lists/lidarr-custom
 Lidarr → Settings → Import Lists → + → Custom List → paste that URL.
 Recommended: monitor Latest Album. Lidarr skips artists already in your library.
 
-Also in this folder:
-- artists-by-genre.txt
-- artists.txt
+Current custom list: 198 MusicBrainz artists covering
+- 90s girl pop / girl groups
+- 90s and 2000s R&B
+- Disney film soundtrack composers and singers
+- a large 1980s pop/rock/new wave/metal/R&B set
 
-Genres: Rock, Pop, Hip-Hop, Country, Jazz, Blues, Metal, R&B/Soul, Electronic/EDM, Folk/Americana, Punk, Indie/Alternative, Reggae, Latin, Funk/Disco, Classical, Goth, Emo, Women artists.
+Also in this folder:
+- artists.txt (human-readable names matching the JSON order)
+- lidarr-custom-list.json (Lidarr Custom List format)
