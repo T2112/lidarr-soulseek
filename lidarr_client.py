@@ -31,10 +31,10 @@ class LidarrClient:
         r.raise_for_status()
         return r.json()
 
-    def wanted_missing(self, page_size: int = 50) -> list[dict[str, Any]]:
+    def wanted_missing(self, page_size: int = 250) -> list[dict[str, Any]]:
         albums: list[dict[str, Any]] = []
         page = 1
-        while True:
+        while page <= 200:
             data = self._get(
                 "/wanted/missing",
                 params={
@@ -47,9 +47,10 @@ class LidarrClient:
                 },
             )
             records = data.get("records") or []
+            if not records:
+                break
             albums.extend(records)
-            total_pages = int(data.get("totalPages") or 1)
-            if page >= total_pages:
+            if len(records) < page_size:
                 break
             page += 1
         return albums
@@ -92,4 +93,14 @@ class LidarrClient:
         return self._post(
             "/command",
             {"name": "DownloadedAlbumsScan", "path": path, "importMode": "Move"},
+        )
+
+    def rename_artist_files(self, artist_id: int) -> Any:
+        files = self._get("/trackFile", params={"artistId": artist_id}) or []
+        ids = [int(f["id"]) for f in files if f.get("id")]
+        if not ids:
+            return None
+        return self._post(
+            "/command",
+            {"name": "RenameFiles", "artistId": artist_id, "files": ids},
         )
