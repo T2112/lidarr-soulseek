@@ -24,6 +24,7 @@ class Config:
     max_albums_per_cycle: int
     max_tracks_per_cycle: int
     fill_missing_tracks: bool
+    focus_one_artist: bool
     cycle_seconds: int
     retry_hours: int
     min_filename_ratio: float
@@ -33,9 +34,13 @@ class Config:
     convert_to_mp3: bool = True
     convert_bitrate: int = 320
     delete_sources_after_import: bool = True
+    clean_incomplete_on_fail: bool = True
+    incomplete_max_age_hours: float = 12.0
     ignored_users: set[str] = field(default_factory=set)
     concurrent_albums: int = 1
     download_timeout_minutes: int = 90
+    status_bind: str = "127.0.0.1"
+    status_port: int = 8787
 
 
 def load_config(path: Path) -> Config:
@@ -48,7 +53,7 @@ def load_config(path: Path) -> Config:
             "Every text value must stay inside double quotes.\n"
             "Wrong:  api_key = 1a2b3c4d5e6f\n"
             'Right:  api_key = "1a2b3c4d5e6f"\n'
-            'Same for url, username, password, and all folder paths.\n'
+            "Same for url, username, password, and all folder paths.\n"
             r'Windows paths use doubled backslashes: "D:\\Media\\Incoming\\Soulseek"'
         ) from exc
     lidarr = raw["lidarr"]
@@ -56,7 +61,6 @@ def load_config(path: Path) -> Config:
     paths = raw["paths"]
     search = raw["search"]
     runtime = raw.get("runtime", {})
-
     base = path.parent
     download_dir = Path(paths["download_dir"])
     complete_dir = Path(paths["complete_dir"])
@@ -66,7 +70,6 @@ def load_config(path: Path) -> Config:
         state_db = base / state_db
     if not log_file.is_absolute():
         log_file = base / log_file
-
     for key, value in (
         ("lidarr.api_key", lidarr.get("api_key", "")),
         ("soulseek.username", slsk.get("username", "")),
@@ -74,10 +77,8 @@ def load_config(path: Path) -> Config:
     ):
         if not value or value == "CHANGEME":
             raise SystemExit(f"Edit config.toml: {key} is still CHANGEME")
-
     download_dir.mkdir(parents=True, exist_ok=True)
     complete_dir.mkdir(parents=True, exist_ok=True)
-
     return Config(
         lidarr_url=lidarr["url"].rstrip("/"),
         lidarr_api_key=lidarr["api_key"],
@@ -96,6 +97,7 @@ def load_config(path: Path) -> Config:
         max_albums_per_cycle=int(search.get("max_albums_per_cycle", 3)),
         max_tracks_per_cycle=int(search.get("max_tracks_per_cycle", 5)),
         fill_missing_tracks=bool(search.get("fill_missing_tracks", True)),
+        focus_one_artist=bool(search.get("focus_one_artist", True)),
         cycle_seconds=int(search.get("cycle_seconds", 300)),
         retry_hours=int(search.get("retry_hours", 12)),
         min_filename_ratio=float(search.get("min_filename_ratio", 0.5)),
@@ -105,7 +107,11 @@ def load_config(path: Path) -> Config:
         convert_to_mp3=bool(search.get("convert_to_mp3", True)),
         convert_bitrate=int(search.get("convert_bitrate", 320)),
         delete_sources_after_import=bool(search.get("delete_sources_after_import", True)),
+        clean_incomplete_on_fail=bool(search.get("clean_incomplete_on_fail", True)),
+        incomplete_max_age_hours=float(search.get("incomplete_max_age_hours", 12)),
         ignored_users={u.lower() for u in search.get("ignored_users", []) if u},
         concurrent_albums=int(runtime.get("concurrent_albums", 1)),
         download_timeout_minutes=int(runtime.get("download_timeout_minutes", 90)),
+        status_bind=str(runtime.get("status_bind", "127.0.0.1")),
+        status_port=int(runtime.get("status_port", 8787)),
     )
