@@ -20,6 +20,16 @@ def setup_logging(log_file: Path) -> None:
             logging.StreamHandler(),
         ],
     )
+    # Soulseek peer chatter. These are other clients failing to reach you, not job failures.
+    for noisy in (
+        "aioslsk.network",
+        "aioslsk.network.network",
+        "aioslsk.network.connection",
+        "aioslsk.distributed",
+        "aioslsk.client",
+        "aioslsk.search.manager",
+    ):
+        logging.getLogger(noisy).setLevel(logging.ERROR)
 
 
 async def amain(config_path: Path) -> None:
