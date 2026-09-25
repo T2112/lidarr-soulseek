@@ -6,7 +6,7 @@ https://raw.githubusercontent.com/T2112/lidarr-soulseek/main/lists/lidarr-custom
 
 Curated popular / widely recorded artists across rock, pop, hip-hop, country, jazz, blues, metal, R&B/soul, electronic, folk, punk, indie, reggae, Latin, funk, classical, goth, emo, women artists, game soundtracks, electro-swing, and more.
 
-**Current status (2026-09-24):** **938** unique MusicBrainz artist IDs resolved in the full list (maintained in the project workspace). GitHub raw may lag or be truncated due to size limits on large JSON pushes via the connector; treat the local `artifacts/lidarr-lists/lidarr-custom-list.json` as authoritative when they differ. ~47 names still pending after name normalization.
+**Current status (2026-09-25):** **975** unique MusicBrainz artist IDs resolved in the full list (maintained in the project workspace). GitHub raw may lag or be truncated due to size limits on large JSON pushes via the connector; treat the local `artifacts/lidarr-lists/lidarr-custom-list.json` as authoritative when they differ. 1 name still pending after name normalization (Bart & Baker — no clear MusicBrainz hit).
 
 ## Festival list (Woodstock + Qlimax + Ozzfest)
 
