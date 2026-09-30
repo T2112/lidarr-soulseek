@@ -6,7 +6,7 @@ https://raw.githubusercontent.com/T2112/lidarr-soulseek/main/lists/lidarr-custom
 
 Curated popular / widely recorded artists across rock, pop, hip-hop, country, jazz, blues, metal, R&B/soul, electronic, folk, punk, indie, reggae, Latin, funk, classical, goth, emo, women artists, game soundtracks, electro-swing, and more.
 
-**Current status (2026-09-27):** **976** unique MusicBrainz artist IDs resolved. Full list is maintained locally (artifacts/lidarr-lists) and the GitHub file is a stub due to connector size limits; use local or re-push full when possible. 0 names still pending after name normalization (aliases such as Debbie Harry→Deborah Harry, Mos Def→Yasiin Bey, Jackson 5→The Jacksons, Tchaikovsky under primary Cyrillic name already present).
+**Current status (2026-09-30):** **976** unique MusicBrainz artist IDs resolved. Full list is maintained locally (artifacts/lidarr-lists). GitHub raw URL is still a size-limited stub (2 sample IDs) because the GitHub connector cannot take the full ~67KB JSON. 0 names still pending after name normalization (`Toots and the Maytals` → Toots & The Maytals, `Nick Cave and the Bad Seeds` → Nick Cave & the Bad Seeds, Tchaikovsky under primary Cyrillic name already present).
 
 ## Festival list (Woodstock + Qlimax + Ozzfest)
 
