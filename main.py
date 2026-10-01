@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from config_loader import load_config
+from status_ui import start_status_ui
 from worker import Worker
 
 
@@ -36,9 +37,12 @@ async def amain(config_path: Path) -> None:
     cfg = load_config(config_path)
     setup_logging(cfg.log_file)
     worker = Worker(cfg)
+    server = start_status_ui(worker, cfg.status_bind, cfg.status_port)
     try:
         await worker.run_forever()
     finally:
+        server.shutdown()
+        server.server_close()
         worker.close()
 
 
