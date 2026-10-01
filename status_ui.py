@@ -6,11 +6,35 @@ import logging
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 log = logging.getLogger("lidarr_slsk.ui")
 
-PAGE = """<!DOCTYPE html>
+# The page used to show every recent row the status payload included, with no
+# size control and no hardcoded count. 10 is the default selection.
+RECENT_LIMITS = (10, 25, 50, 100, 250)
+DEFAULT_RECENT_LIMIT = 10
+
+
+def normalize_recent_limit(value: Any) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_RECENT_LIMIT
+    if number in RECENT_LIMITS:
+        return number
+    return DEFAULT_RECENT_LIMIT
+
+
+def _recent_options() -> str:
+    options = []
+    for number in RECENT_LIMITS:
+        selected = " selected" if number == DEFAULT_RECENT_LIMIT else ""
+        options.append(f'<option value="{number}"{selected}>{number}</option>')
+    return "".join(options)
+
+
+_PAGE_TEMPLATE = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>Lidarr Soulseek</title>
 <style>
 :root{color-scheme:dark}body{font-family:Segoe UI,system-ui,sans-serif;margin:0;background:#111;color:#eee}
@@ -22,19 +46,44 @@ button{background:#8b1e1e;color:#fff;border:0;padding:6px 10px;border-radius:4px
 button.secondary{background:#333}.ok{color:#7dce7d}.bad{color:#e07a7a}
 .bar{height:8px;background:#333;border-radius:4px;overflow:hidden;min-width:80px}.bar>i{display:block;height:100%;background:#3d8bfd}
 h2{font-size:15px;margin:28px 0 8px}
+.recent-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:28px}
+.recent-head h2{margin:0}
+label.recent-limit{display:flex;align-items:center;gap:8px}
+select{background:#1c1c1c;color:#eee;border:1px solid #444;border-radius:4px;padding:4px 8px;font-size:13px}
 </style></head><body>
 <header><h1>Lidarr Soulseek</h1><div>
 <button class="secondary" onclick="load()">Refresh</button>
 <button onclick="cancelAll()">Cancel all</button></div></header>
 <main><div id="job" class="meta">Loading…</div>
 <table><thead><tr><th>File</th><th>User</th><th>Status</th><th>Progress</th><th></th></tr></thead><tbody id="rows"></tbody></table>
-<h2>Recent completed</h2>
+<div class="recent-head"><h2>Recent completed</h2>
+<label class="recent-limit meta" for="recent-limit">Show
+<select id="recent-limit" onchange="setRecentLimit(this.value)">%%RECENT_OPTIONS%%</select>
+</label></div>
 <table><thead><tr><th>When</th><th>Artist / album</th><th>File</th><th>User</th></tr></thead><tbody id="recent"></tbody></table>
 </main>
 <script>
+const RECENT_LIMITS = %%RECENT_LIMITS_JSON%%;
+const DEFAULT_RECENT_LIMIT = %%DEFAULT_RECENT_LIMIT%%;
+function recentLimit(){
+  try {
+    const n = parseInt(sessionStorage.getItem('recentFileLimit') || '', 10);
+    if (RECENT_LIMITS.includes(n)) return n;
+  } catch (e) {}
+  return DEFAULT_RECENT_LIMIT;
+}
+function setRecentLimit(value){
+  const n = parseInt(value, 10);
+  if (!RECENT_LIMITS.includes(n)) return;
+  try { sessionStorage.setItem('recentFileLimit', String(n)); } catch (e) {}
+  load();
+}
 async function load(){
-  const r=await fetch('/api/status'); const d=await r.json(); const job=d.job||{};
-  document.getElementById('job').textContent=[d.logged_in?'Soulseek connected':'Soulseek offline',job.phase||'idle',[job.artist,job.title].filter(Boolean).join(' \u2014 ')].filter(Boolean).join(' \u00b7 ');
+  const limit = recentLimit();
+  const sel = document.getElementById('recent-limit');
+  if (sel && document.activeElement !== sel) sel.value = String(limit);
+  const r = await fetch('/api/status?limit=' + encodeURIComponent(limit)); const d = await r.json(); const job = d.job||{};
+  document.getElementById('job').textContent=[d.logged_in?'Soulseek connected':'Soulseek offline',job.phase||'idle',[job.artist,job.title].filter(Boolean).join(' \\u2014 ')].filter(Boolean).join(' \\u00b7 ');
   const body=document.getElementById('rows'); body.innerHTML='';
   (d.transfers||[]).forEach((t,i)=>{
     const tr=document.createElement('tr');
@@ -45,13 +94,14 @@ async function load(){
     body.appendChild(tr);
   });
   if(!(d.transfers||[]).length){const tr=document.createElement('tr'); tr.innerHTML='<td colspan="5" class="meta">No active downloads</td>'; body.appendChild(tr);}
+  const items=(d.recent||[]).slice(0, limit);
   const recent=document.getElementById('recent'); recent.innerHTML='';
-  (d.recent||[]).forEach(item=>{
+  items.forEach(item=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td class="meta">${esc(fmtTime(item.finished_at))}</td><td>${esc([item.artist,item.title].filter(Boolean).join(' \u2014 '))}</td><td>${esc(item.filename||'')}</td><td>${esc(item.username||'')}</td>`;
+    tr.innerHTML=`<td class="meta">${esc(fmtTime(item.finished_at))}</td><td>${esc([item.artist,item.title].filter(Boolean).join(' \\u2014 '))}</td><td>${esc(item.filename||'')}</td><td>${esc(item.username||'')}</td>`;
     recent.appendChild(tr);
   });
-  if(!(d.recent||[]).length){const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" class="meta">Nothing finished yet this install</td>'; recent.appendChild(tr);}
+  if(!items.length){const tr=document.createElement('tr'); tr.innerHTML='<td colspan="4" class="meta">Nothing finished yet this install</td>'; recent.appendChild(tr);}
 }
 function fmtTime(iso){if(!iso)return ''; const d=new Date(iso); return Number.isNaN(d.getTime())?iso:d.toLocaleString();}
 function esc(s){return String(s).replace(/[&<>"'`]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c]));}
@@ -60,6 +110,12 @@ async function cancelAll(){await fetch('/api/cancel',{method:'POST',headers:{'Co
 load(); setInterval(load,2000);
 </script></body></html>
 """
+
+PAGE = (
+    _PAGE_TEMPLATE.replace("%%RECENT_OPTIONS%%", _recent_options())
+    .replace("%%RECENT_LIMITS_JSON%%", json.dumps(list(RECENT_LIMITS)))
+    .replace("%%DEFAULT_RECENT_LIMIT%%", str(DEFAULT_RECENT_LIMIT))
+)
 
 
 class StatusHandler(BaseHTTPRequestHandler):
@@ -77,13 +133,31 @@ class StatusHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _status_payload(self, limit: int) -> dict:
+        snapshot = getattr(self.worker, "ui_snapshot", None)
+        payload: Any = None
+        if callable(snapshot):
+            try:
+                payload = snapshot(recent_limit=limit)
+            except TypeError:
+                payload = snapshot()
+        if not isinstance(payload, dict):
+            payload = {}
+        else:
+            payload = dict(payload)
+        payload["recent"] = list(payload.get("recent") or [])[:limit]
+        return payload
+
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path in {"/", "/index.html"}:
             self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
             return
         if path == "/api/status":
-            self._send(200, json.dumps(self.worker.ui_snapshot()).encode("utf-8"), "application/json")
+            raw_limit = (parse_qs(parsed.query).get("limit") or [None])[0]
+            limit = normalize_recent_limit(raw_limit)
+            self._send(200, json.dumps(self._status_payload(limit)).encode("utf-8"), "application/json")
             return
         self._send(404, b"not found", "text/plain")
 

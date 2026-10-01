@@ -25,6 +25,7 @@ from config_loader import Config
 from lidarr_client import LidarrClient
 from match import AUDIO_EXT, build_queries, build_track_queries, group_results, score_folder, score_track_item
 from state import JobStore
+from status_ui import normalize_recent_limit
 
 log = logging.getLogger("lidarr_slsk")
 LOSSLESS_EXT = {".flac", ".wav", ".aiff", ".aif", ".wv", ".ape"}
@@ -176,6 +177,26 @@ class Worker:
     def soulseek_logged_in(self) -> bool:
         return bool(self.client and getattr(self.client, "session", None))
 
+    def ui_snapshot(self, recent_limit: int = 10) -> dict:
+        limit = normalize_recent_limit(recent_limit)
+        return {
+            "logged_in": self.soulseek_logged_in(),
+            "job": {},
+            "transfers": [],
+            "recent": self.store.recent_completed(limit),
+        }
+
+    def _remember_completed(self, artist: str, title: str, transfers, username: str = "") -> None:
+        for transfer in transfers:
+            if state_name(transfer) != "COMPLETE":
+                continue
+            filename = getattr(transfer, "filename", None) or ""
+            if not filename:
+                local = getattr(transfer, "local_path", None)
+                filename = Path(local).name if local else ""
+            user = getattr(transfer, "username", None) or username or ""
+            self.store.add_completed_file(artist, title, str(filename), str(user))
+
     async def start_soulseek(self) -> None:
         self.client = SoulSeekClient(build_slsk_settings(self.cfg))
         await self.client.start()
@@ -319,6 +340,7 @@ class Worker:
         if state_name(transfer) != "COMPLETE":
             self.store.upsert_track(track_id, album_id, artist, title, "failed", state_name(transfer) or "timeout")
             return False
+        self._remember_completed(artist, album_title, [transfer], best_user)
         folder, sources = stage_album_folder(self.cfg, artist, album_title, year, [transfer])
         audio_count = sum(1 for p in folder.iterdir() if p.suffix.lower() in AUDIO_EXT)
         if audio_count == 0:
@@ -389,6 +411,7 @@ class Worker:
             log.info("Download progress %s/%s complete", complete, len(transfers))
             await asyncio.sleep(15)
         complete_transfers = [t for t in transfers if state_name(t) == "COMPLETE"]
+        self._remember_completed(artist, title, complete_transfers, best.username)
         needed = max(1, len(best.files) - self.cfg.track_count_tolerance)
         if len(complete_transfers) < needed:
             detail = f"finished {len(complete_transfers)}/{len(transfers)}"
